@@ -1,0 +1,19 @@
+(lang dune 3.0)
+
+(name trading_engine)
+
+(generate_opam_files true)
+
+(source
+ (github yourusername/ocaml-trading-engine))
+
+(authors "Your Name")
+
+(license MIT)
+
+(package
+ (name trading_engine)
+ (synopsis "A matching engine and trading DSL in OCaml")
+ (depends
+  (ocaml (>= 5.1))
+  (dune (>= 3.0))))

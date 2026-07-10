@@ -1,0 +1,65 @@
+# docker-compose.yml — Full trading system stack
+# Use this starting Weekend 3 when you add Kafka and the sentiment service.
+#
+# Run: docker-compose up -d
+# Kafka UI: http://localhost:8080
+
+services:
+  # ── Kafka (message streaming) ──────────────────────────────
+  # Using KRaft mode (no Zookeeper needed, simpler setup)
+  kafka:
+    image: bitnami/kafka:3.7
+    ports:
+      - "9092:9092"      # External client connections
+      - "9093:9093"      # Internal broker connections
+    environment:
+      - KAFKA_CFG_NODE_ID=0
+      - KAFKA_CFG_PROCESS_ROLES=controller,broker
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+    volumes:
+      - kafka_data:/bitnami/kafka
+
+  # ── Kafka UI (optional, for debugging) ─────────────────────
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=local
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+    depends_on:
+      - kafka
+
+  # ── Sentiment Service (Python + LangGraph) ─────────────────
+  # Weekend 4: AI context layer
+  sentiment-service:
+    build:
+      context: ./services/sentiment
+      dockerfile: Dockerfile
+    ports:
+      - "50051:50051"    # gRPC port
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-your-key-here}
+      - KAFKA_BOOTSTRAP=kafka:9092
+    depends_on:
+      - kafka
+
+  # ── OCaml Trading Engine ───────────────────────────────────
+  trading-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - SENTIMENT_HOST=sentiment-service:50051
+    depends_on:
+      - kafka
+      - sentiment-service
+
+volumes:
+  kafka_data:

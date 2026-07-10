@@ -1,0 +1,14 @@
+WHEN price("AAPL") < 150.0 AND volume("AAPL") > 500
+THEN buy("AAPL", 100, "market")
+
+WHEN price("AAPL") > 200.0
+THEN sell("AAPL", 50, "limit")
+
+WHEN spread("AAPL") > 2.0
+THEN cancel_all("AAPL")
+
+WHEN sentiment("ETH") < -0.5 AND position("ETH") > 0
+THEN sell("ETH", 100, "market")
+
+WHEN price("GOOG") < 130.0 AND sentiment("GOOG") > 0.3
+THEN buy("GOOG", 200, "limit")
