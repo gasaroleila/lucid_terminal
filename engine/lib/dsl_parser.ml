@@ -99,6 +99,10 @@ let rec parse_primary p =
     ignore (consume p);
     let inner = parse_primary p in
     UnaryOp (Not, inner)
+  | MINUS ->
+    ignore (consume p);
+    let inner = parse_primary p in
+    BinOp (Sub, Lit (LitInt 0), inner)
   | IDENT name ->
     ignore (consume p);
     (* Check if it's a function call *)

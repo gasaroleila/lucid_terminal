@@ -32,10 +32,10 @@ let run_matching_demo () =
 
   Printf.printf "Processing %d orders...\n\n" (List.length orders);
 
-  List.iter (fun order ->
-    let book = get_book order.Types.symbol in
+  List.iter (fun (order : Types.order) ->
+    let book = get_book order.symbol in
     let (updated_book, _result) = Matching_engine.submit_order book order in
-    Hashtbl.replace books order.Types.symbol updated_book
+    Hashtbl.replace books order.symbol updated_book
   ) orders;
 
   (* Print final book state *)
