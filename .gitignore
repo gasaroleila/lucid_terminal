@@ -1,0 +1,27 @@
+engine/
+
+# Dune build artifacts
+_build/
+*.install
+
+# Opam local switch
+_opam/
+
+# OCaml compiled files
+*.cmo
+*.cmi
+*.cmx
+*.cmt
+*.cmti
+*.cmxa
+*.cma
+*.cmxs
+*.a
+*.o
+*.byte
+*.native
+*.exe
+
+# Editor
+.merlin
+*.annot

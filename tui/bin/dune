@@ -1,0 +1,6 @@
+(executable
+ (name main)
+ (public_name lucid_terminal)
+ (libraries lucid_tui core core_unix.command_unix)
+ (preprocess
+  (pps ppx_jane bonsai.ppx_bonsai)))

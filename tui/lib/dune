@@ -1,0 +1,5 @@
+(library
+ (name lucid_tui)
+ (libraries async bonsai bonsai_term bonsai_term_components.border_box bonsai_term_components.textbox core)
+ (preprocess
+  (pps ppx_jane bonsai.ppx_bonsai)))

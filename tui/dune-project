@@ -1,0 +1,18 @@
+(lang dune 3.17)
+
+(name lucid_terminal)
+
+(generate_opam_files true)
+
+(package
+ (name lucid_terminal)
+ (synopsis "Lucid Terminal - a live trading TUI")
+ (depends
+  (ocaml (>= 5.2))
+  (dune (>= 3.17))
+  async
+  bonsai
+  bonsai_term
+  bonsai_term_components
+  core
+  ppx_jane))
