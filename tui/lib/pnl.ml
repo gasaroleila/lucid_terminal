@@ -21,7 +21,5 @@ let component ~(pnl : Types.pnl_data Bonsai.t) (local_ _graph) =
         (sprintf "unrealized %+.0f" pnl.unrealized);
     ]
   in
-  Bonsai_term_border_box.view ~title:"P&L"
-    ~title_attrs:[Colors.attr_dim]
-    (View.vcat [ total_line; detail ])
+  View.vcat [ View.text ~attrs:[Colors.attr_dim] "P&L"; total_line; detail ]
 ;;

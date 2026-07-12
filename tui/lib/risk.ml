@@ -17,7 +17,8 @@ let component ~(risk : Types.risk_data Bonsai.t) (local_ _graph) =
     if Float.(risk.vega >= 0.0) then Colors.attr_green
     else Colors.attr_red
   in
-  let rows = View.vcat [
+  View.vcat [
+    View.text ~attrs:[Colors.attr_dim] "RISK";
     View.hcat [
       View.text ~attrs:[Colors.attr_dim] "net delta  ";
       View.text ~attrs:[delta_attr] (fmt_signed risk.net_delta);
@@ -31,8 +32,5 @@ let component ~(risk : Types.risk_data Bonsai.t) (local_ _graph) =
       View.text ~attrs:[Colors.attr_bright]
         (Int.to_string_hum (Float.to_int risk.gross_exposure));
     ];
-  ] in
-  Bonsai_term_border_box.view ~title:"RISK"
-    ~title_attrs:[Colors.attr_dim]
-    rows
+  ]
 ;;

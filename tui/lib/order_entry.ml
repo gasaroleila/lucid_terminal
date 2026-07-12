@@ -28,13 +28,13 @@ let component
   let view =
     let%arr qty_box and limit_box and working in
     let buy_btn =
-      View.text ~attrs:[Attr.fg Colors.buy_green; Attr.bold] " BUY "
+      View.text ~attrs:[Attr.fg Colors.fg_bright; Attr.bg Colors.buy_green; Attr.bold] " BUY "
     in
     let sell_btn =
-      View.text ~attrs:[Attr.fg Colors.sell_red; Attr.bold] " SELL "
+      View.text ~attrs:[Attr.fg Colors.fg_bright; Attr.bg Colors.sell_red; Attr.bold] " SELL "
     in
     let buttons = View.hcat [
-      View.text "   ";
+      View.text "  ";
       buy_btn;
       View.text "  ";
       sell_btn;
@@ -55,9 +55,14 @@ let component
       View.text ~attrs:[Colors.attr_dim] "  F1 buy  ·  F2 sell";
       View.text ~attrs:[Colors.attr_dim] "  esc cancel all";
     ] in
-    Bonsai_term_border_box.view ~title:"ORDER ENTRY"
-      ~title_attrs:[Colors.attr_dim]
-      (View.vcat [ buttons; qty_row; limit_row; working_line; hotkeys ])
+    View.vcat [
+      View.text ~attrs:[Colors.attr_dim] "ORDER ENTRY";
+      buttons;
+      qty_row;
+      limit_row;
+      working_line;
+      hotkeys;
+    ]
   in
   let handler =
     let%arr qty_box and limit_box and set_focus and focus and on_buy and on_sell in

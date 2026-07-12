@@ -80,12 +80,12 @@ let rec match_order ?(trades=[]) book incoming =
   match best_resting with
   | None ->
     (* No resting orders on the opposite side — done matching *)
-    { trades = List.rev trades; remaining_order = Some incoming }
+    (book, { trades = List.rev trades; remaining_order = Some incoming })
 
   | Some (_resting_price, resting) ->
     if not (can_match ~incoming ~resting) then
       (* Best resting order doesn't match our price — done *)
-      { trades = List.rev trades; remaining_order = Some incoming }
+      (book, { trades = List.rev trades; remaining_order = Some incoming })
     else begin
       (* We have a match! Determine how much trades. *)
       let fill_qty = min incoming.qty resting.qty in
@@ -130,7 +130,7 @@ let rec match_order ?(trades=[]) book incoming =
       (* Is the incoming order fully filled? *)
       if incoming.qty <= fill_qty then
         (* Fully filled — done! *)
-        { trades = List.rev (trade :: trades); remaining_order = None }
+        (book, { trades = List.rev (trade :: trades); remaining_order = None })
       else
         (* Partially filled — recurse with reduced quantity *)
         let incoming = { incoming with qty = incoming.qty - fill_qty } in
@@ -141,26 +141,13 @@ let rec match_order ?(trades=[]) book incoming =
     Attempts to match, then adds any unfilled remainder to the book.
     Returns the updated book and the execution result. *)
 let submit_order book order =
-  Printf.printf ">> Submitting: %s\n" (string_of_order order);
-
-  let result = match_order book order in
-
-  (* Print trades *)
-  List.iter (fun t ->
-    Printf.printf "   ✓ %s\n" (string_of_trade t)
-  ) result.trades;
+  let (book, result) = match_order book order in
 
   (* Add unfilled remainder to the book *)
   let book = match result.remaining_order with
     | Some remaining when remaining.order_type <> Market ->
       (* Don't add unfilled market orders — they expire *)
-      Printf.printf "   → Resting: %s\n" (string_of_order remaining);
       add_order book remaining
-    | Some _ ->
-      Printf.printf "   → Market order expired (unfilled portion cancelled)\n";
-      book
-    | None ->
-      Printf.printf "   → Fully filled!\n";
-      book
+    | _ -> book
   in
   (book, result)

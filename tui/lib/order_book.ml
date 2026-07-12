@@ -4,19 +4,20 @@ open Bonsai.Let_syntax
 
 let max_bar_width = 10
 
+let block_bar n = String.concat (List.init n ~f:(fun _ -> "\xe2\x96\x88"))
+
 let render_level ~(level : Types.book_level) ~max_size ~is_ask =
   let color_attr = if is_ask then Colors.attr_red else Colors.attr_green in
   let bar_len =
     if max_size > 0 then (level.size * max_bar_width) / max_size
     else 0
   in
-  let bar = String.make bar_len '=' in
   View.hcat [
     View.text ~attrs:[color_attr] (sprintf "%7.2f" level.price);
     View.text "  ";
-    View.text ~attrs:[color_attr] (sprintf "%5d" level.size);
+    View.text ~attrs:[color_attr] (sprintf "%4d" level.size);
     View.text " ";
-    View.text ~attrs:[color_attr] bar;
+    View.text ~attrs:[color_attr] (block_bar bar_len);
   ]
 
 let component ~(book : Types.order_book_data Bonsai.t) (local_ _graph) =
@@ -38,14 +39,16 @@ let component ~(book : Types.order_book_data Bonsai.t) (local_ _graph) =
     View.hcat [
       View.text ~attrs:[Colors.attr_dim] "  price";
       View.text "  ";
-      View.text ~attrs:[Colors.attr_dim] " size";
+      View.text ~attrs:[Colors.attr_dim] " syn";
     ]
   in
   let spread_line =
     View.text ~attrs:[Colors.attr_dim]
       (sprintf " spread %.2f  mid %.2f" book.spread book.mid_price)
   in
-  Bonsai_term_border_box.view ~title:"ORDER BOOK"
-    ~title_attrs:[Colors.attr_dim]
-    (View.vcat ([ header ] @ ask_rows @ [ spread_line ] @ bid_rows))
+  View.vcat
+    ([ View.text ~attrs:[Colors.attr_dim] "ORDER BOOK"; header ]
+     @ ask_rows
+     @ [ spread_line ]
+     @ bid_rows)
 ;;

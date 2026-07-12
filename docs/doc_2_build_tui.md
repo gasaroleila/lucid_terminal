@@ -7,6 +7,41 @@ The terminal dashboard running on top of Bonsai_term library. Frontend of lucid 
 The dashboard design is shown below;
 ![1783801064982](image/doc_2_build_tui/1783801064982.png)
 
+Explicit view of dashboard design
+```
+┌──────────────────────┬──────────────────────┬────────────────────┬──────────────────────────────┐
+│ lucid-terminal  AAPL │ session 09:31:04     │                    │              feed  lat 0.4ms │
+├──────────────────────┼──────────────────────┼────────────────────┼──────────────────────────────┤
+│ ORDER BOOK           │ POSITIONS            │ P&L                │ NEWS                    live │
+│                      │                      │                    │                              │
+│ price    size        │ sym    qty    uPnL   │ day P&L            │ 09:30:58 · AAPL  ▲ bull 0.71 │
+│ 187.24   420  ███    │ AAPL  +1,200 +3,840  │ +3,237             │ Apple lifts services         │
+│ 187.23   610  █████  │ MSFT   -500  -1,215  │                    │ revenue guidance for Q3      │
+│ 187.22   890  ██████ │ NVDA    +80    +612  │ real +1,890        │ AI view · conf 0.64          │
+│ 187.21   150  █      │                      │ unrl +1,347        │                              │
+│                      │                      │                    │ 09:29:12 · MSFT  ▼ bear 0.55 │
+│ spread 0.02          │                      ├────────────────────┤ Regulator opens review of    │
+│ mid 187.20           │                      │ ORDER ENTRY        │ cloud bundling               │
+│                      │                      │                    │ AI view · conf 0.48          │
+│ 187.19   330  ███    │                      │ [BUY]   [SELL]     │                              │
+│ 187.18   720  █████  │                      │                    │ 09:27:40 · NVDA  — neutral   │
+│ 187.17   540  ████   │                      │ qty      100       │ Chip supplier reaffirms      │
+│ 187.16   280  ██     │                      │ limit    187.19    │ shipment timeline            │
+│                      │                      │                    │ AI view · conf 0.31          │
+│                      │                      │ working: 2         │                              │
+│                      ├──────────────────────┤ F1 buy · F2 sell   │ 09:25:03 · MKT   ▲ bull 0.60 │
+│ ◀ StreamOrderBook    │ RISK                 │                    │ Futures firm ahead of jobs   │
+│                      │                      │ ▶ SubmitOrder      │ print                        │
+│                      │ net delta   +1,180   │   (gRPC unary)     │ AI view · conf 0.52          │
+│                      │ vega        -2,400   │                    │                              │
+│                      │ gross exp     412k   │                    │ sentiment = model opinion,   │
+│                      │                      │                    │ not a signal                 │
+│                      │ ◀ StreamPositions     │ ◀ StreamTrades     │ ◀ StreamSentiment            │
+├──────────────────────┴──────────────────────┴────────────────────┴──────────────────────────────┤
+│ ᛘ venue OK   msgs 14,203   news feed OK   drops 0                      ⚠ vega limit 80%       │
+└────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
 # Components
 
 ## Top Bar
@@ -36,3 +71,6 @@ how you act. Consists of two actions (buy/sell), a quantity field, and a limit p
 ## Bottom Bar
 
 plumbing health. Confirmation your connection to the venue is alive, how many messages you've processed, whether any data was dropped, and risk-limit warnings. That amber "vega limit 80%" is a heads-up that you're approaching a preset ceiling on volatility exposure — a nudge to slow down before a system or risk manager stops you.
+
+# Fixes to Accomodate Real Time Data Integration 
+[TO BE ADDED AFTER REAL TIME DATA INTEGRATION]

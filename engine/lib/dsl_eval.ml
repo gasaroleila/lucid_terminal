@@ -177,14 +177,12 @@ let to_action = function
 (** Evaluate a single rule: check condition, return action if true *)
 let eval_rule ctx rule =
   let condition_result = eval ctx rule.condition in
-  if bool_of_value condition_result then begin
-    Printf.printf "  ✓ Rule fired: %s\n" (string_of_rule rule);
+  if bool_of_value condition_result then
     to_action rule.action
-  end else
+  else
     None
 
 (** Evaluate all rules against current market state.
     Returns a list of actions to execute. *)
 let eval_program ctx program =
-  Printf.printf "Evaluating %d rules...\n" (List.length program);
   List.filter_map (eval_rule ctx) program

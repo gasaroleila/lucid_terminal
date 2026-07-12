@@ -36,7 +36,5 @@ let component ~(positions : Types.position list Bonsai.t) (local_ _graph) =
     ]
   in
   let rows = List.map positions ~f:render_position in
-  Bonsai_term_border_box.view ~title:"POSITIONS"
-    ~title_attrs:[Colors.attr_dim]
-    (View.vcat (header :: rows))
+  View.vcat (View.text ~attrs:[Colors.attr_dim] "POSITIONS" :: header :: rows)
 ;;
