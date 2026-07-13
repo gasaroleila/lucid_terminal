@@ -102,3 +102,198 @@ Every panel in the TUI receives data exclusively through gRPC streams from the O
 **P&L / order entry panel** — Subscribes to `StreamTrades` for fill confirmations and day P&L updates. When the user submits an order via the BUY/SELL buttons (F1/F2), the TUI calls the `SubmitOrder` gRPC unary RPC. The engine processes it through the matching engine, and if it fills, the trade confirmation arrives back on the `StreamTrades` stream. The working order count updates on the same stream.
 
 **News / sentiment panel** — Subscribes to `StreamSentiment`. The sentiment service polls NewsAPI (~every 15 minutes on the free tier), scores each headline through LangGraph, and publishes to the Kafka `sentiment` topic. The engine consumes that topic and forwards each scored headline over the gRPC stream. The TUI prepends new entries and pushes older ones down. Between polls the panel is static — "live" means latest available, not real-time.
+
+## How Each Component Is Built
+
+### Kafka broker
+
+Runs as a Docker container using Bitnami's Kafka image in KRaft mode — no Zookeeper needed. No custom code — just configuration in `docker-compose.yml`. Topics are auto-created on first produce, or can be created via the `/opt/kafka/bin/kafka-topics.sh` CLI. An optional Kafka UI container is included for debugging at `http://localhost:8080`.
+
+- Image: `apache/kafka:3.7.0` (KRaft mode, single-node)
+- UI: `provectuslabs/kafka-ui:latest` (optional)
+
+### Python ingest sidecar
+
+A short Python script that opens a WebSocket connection to Finnhub (`wss://ws.finnhub.io`), subscribes to trade ticks for the symbols you're trading, normalizes each tick into a consistent JSON quote schema, and produces it to the `raw-quotes` Kafka topic. The free tier supports real-time streaming for up to 50 symbols at 60 API calls/min — no credit card required. The Kafka producer is handled entirely by the `confluent-kafka` Python package — you instantiate a `Producer`, call `produce()` with a topic and payload, and the library handles batching, compression, and delivery.
+
+- Market data source: Finnhub free tier ([finnhub.io](https://finnhub.io)) — real-time US stock WebSocket stream
+- WebSocket client: `websockets` (pip) — connects to `wss://ws.finnhub.io`
+- Kafka client: `confluent-kafka` (pip)
+
+### Sentiment service
+
+A Python service that polls NewsAPI for headlines related to the symbols you're trading, runs each headline through a LangGraph pipeline to produce a sentiment score (-1.0 to 1.0), and publishes the result to the `sentiment` Kafka topic using the same `confluent-kafka` producer. The LLM call and pipeline orchestration are handled by LangGraph and LangChain — you define nodes (fetch headlines → score sentiment → format output) and LangGraph manages the execution flow.
+
+- News source: `newsapi-python` (pip) — official Python client for NewsAPI.org
+- Sentiment pipeline: `langgraph` + `langchain` (pip)
+- Kafka producer: `confluent-kafka` (pip)
+
+### OCaml Kafka consumer
+
+The OCaml engine reads from Kafka topics using the `ocaml-kafka` opam package, which wraps `librdkafka` (the same C library that `confluent-kafka` for Python uses under the hood). You create a consumer, subscribe to topics, and poll for messages in a loop. Each message is deserialized and dispatched to the matching engine or DSL evaluator.
+
+- Kafka client: `ocaml-kafka` (opam) — wraps `librdkafka`
+- System dependency: `librdkafka-dev` (apt)
+
+### gRPC layer
+
+The contract between the OCaml engine and the TUI is defined in a single `.proto` file. From this file, code generation produces typed stubs on both sides. On the OCaml side, `ocaml-grpc` and `ocaml-protoc-plugin` generate server code from the proto. On the TUI side (if the TUI client is Python), `grpcio-tools` generates the client stubs. The transport, serialization, and streaming are all handled by the gRPC framework — you implement the service methods and the library does the rest.
+
+- Proto compiler: `protoc` (system install)
+- OCaml server: `ocaml-grpc` + `ocaml-protoc-plugin` (opam)
+- Python client (if TUI is Python): `grpcio` + `grpcio-tools` (pip)
+- OCaml client (if TUI is OCaml): same `ocaml-grpc` package
+
+### Docker Compose
+
+All services are wired together in a single `docker-compose.yml`. Each service is a container on the same Docker network, so they can reference each other by service name (e.g., `kafka:29092`). No custom networking code — Docker handles service discovery.
+
+- Containers: `kafka`, `kafka-ui`, `trading-engine`, `sentiment-service`
+- Orchestration: `docker compose` v2
+
+## Phase Verification Guide
+
+How to confirm each phase is working before moving to the next.
+
+### Phase 1: Kafka broker
+
+**Start it** (from `engine/` directory):
+```bash
+docker compose up -d kafka kafka-ui
+```
+
+**Verify containers are healthy:**
+```bash
+docker compose ps
+# kafka and kafka-ui should show "running"
+```
+
+**Check Kafka UI:**
+Open `http://localhost:8080` in your browser. You should see the cluster dashboard with broker info.
+
+**Create a test topic and round-trip a message:**
+```bash
+# Create a topic
+docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --create --topic test --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
+
+# List topics to confirm
+docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092
+# Should include "test"
+
+# In one terminal — start a consumer (will wait for messages):
+docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh --topic test --bootstrap-server localhost:9092 --from-beginning
+
+# In another terminal — produce a message:
+docker compose exec kafka /opt/kafka/bin/kafka-console-producer.sh --topic test --bootstrap-server localhost:9092
+# Type a message and press Enter
+```
+
+**Pass criteria:** The message you typed in the producer terminal appears in the consumer terminal. The topic is also visible in the Kafka UI at `http://localhost:8080`.
+
+### Phase 2: Python ingest sidecar
+
+**Start it** (with Kafka already running from Phase 1):
+```bash
+docker compose up -d ingest
+```
+
+**Check logs for successful Finnhub connection:**
+```bash
+docker compose logs -f ingest
+# Should show: WebSocket connected, subscribed to symbols
+```
+
+**Consume from raw-quotes to see live data:**
+```bash
+docker compose exec kafka kafka-console-consumer --topic raw-quotes --bootstrap-server localhost:9092 --from-beginning
+```
+
+**Pass criteria:** JSON quote messages appear in the consumer within a few seconds (during US market hours). Each message should contain fields like `symbol`, `price`, `volume`, `timestamp`. Outside market hours, you may see empty polls — that's normal for Finnhub's free tier.
+
+### Phase 3: Sentiment service
+
+**Start it** (with Kafka already running):
+```bash
+docker compose up -d sentiment
+```
+
+**Check logs for successful NewsAPI poll:**
+```bash
+docker compose logs -f sentiment
+# Should show: fetched N headlines, scored, published to Kafka
+```
+
+**Consume from the sentiment topic:**
+```bash
+docker compose exec kafka kafka-console-consumer --topic sentiment --bootstrap-server localhost:9092 --from-beginning
+```
+
+**Pass criteria:** JSON messages appear containing `symbol`, `headline`, `score` (a float between -1.0 and 1.0), and `timestamp`. The first batch should arrive within ~30 seconds of startup. Subsequent batches arrive every ~15 minutes.
+
+### Phase 4: OCaml Kafka consumer
+
+**Build and run the engine** (with Kafka, ingest, and sentiment already running):
+```bash
+cd engine && eval $(opam env) && dune build && dune exec lucid_engine
+```
+
+**Check engine output for consumed messages:**
+```
+# Engine stdout/logs should show:
+# - "Consumed quote: AAPL @ 187.32" (from raw-quotes)
+# - "Consumed sentiment: AAPL headline score=0.65" (from sentiment)
+```
+
+**Pass criteria:** The engine prints consumed quotes and sentiment scores as they arrive from Kafka. If you have DSL rules loaded, you should also see rule evaluations triggered by incoming quotes.
+
+### Phase 5: gRPC layer
+
+**Start the engine with gRPC server** (with Kafka pipeline running):
+```bash
+cd engine && eval $(opam env) && dune exec lucid_engine
+# Should print: gRPC server listening on 0.0.0.0:50051
+```
+
+**Test with grpcurl (install: `brew install grpcurl`):**
+```bash
+# List available services
+grpcurl -plaintext localhost:50051 list
+
+# Test the order book stream (streams until you Ctrl-C)
+grpcurl -plaintext localhost:50051 lucid.Engine/StreamOrderBook
+
+# Test submitting an order
+grpcurl -plaintext -d '{"symbol": "AAPL", "side": "BUY", "quantity": 10, "price": 150.0}' \
+  localhost:50051 lucid.Engine/SubmitOrder
+```
+
+**Pass criteria:**
+- `list` shows `lucid.Engine` service
+- `StreamOrderBook` outputs JSON order book updates as they arrive
+- `SubmitOrder` returns an acknowledgment with an order ID
+
+### Phase 6: Docker Compose (full stack)
+
+**Start everything** (from `engine/` directory):
+```bash
+docker compose up -d
+docker compose ps
+# All containers should show "running": kafka, kafka-ui, ingest, sentiment-service, trading-engine
+```
+
+**Run the TUI and verify all panels are live:**
+```bash
+cd tui && eval $(opam env) && dune exec lucid_terminal
+```
+
+**Pass criteria (check each panel):**
+- **Order Book** — Bid/ask levels update as quotes flow in
+- **Positions / Risk** — Shows positions after a trade executes
+- **P&L / Order Entry** — Can submit an order with F1/F2 and see fill confirmation
+- **News / Sentiment** — Headlines with sentiment scores appear and refresh every ~15 minutes
+
+**Teardown:**
+```bash
+docker compose down -v   # -v removes volumes for a clean slate
+```
+
