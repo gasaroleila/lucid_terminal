@@ -66,17 +66,29 @@ services:
     depends_on:
       - kafka
 
+  # ── Kafka Relay (Kafka → TCP for OCaml engine) ─────────────
+  kafka-relay:
+    build:
+      context: ./services/kafka_relay
+      dockerfile: Dockerfile
+    ports:
+      - "9100:9100"
+    environment:
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - RELAY_PORT=9100
+    depends_on:
+      - kafka
+
   # ── OCaml Trading Engine ───────────────────────────────────
   trading-engine:
     build:
       context: .
       dockerfile: Dockerfile
     environment:
-      - KAFKA_BOOTSTRAP=kafka:9092
-      - SENTIMENT_HOST=sentiment-service:50051
+      - KAFKA_RELAY_HOST=kafka-relay
+      - KAFKA_RELAY_PORT=9100
     depends_on:
-      - kafka
-      - sentiment-service
+      - kafka-relay
 
 volumes:
   kafka_data:

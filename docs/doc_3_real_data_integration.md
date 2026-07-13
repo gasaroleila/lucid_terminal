@@ -153,12 +153,20 @@ Inside the sentiment pipeline, apply these filters to avoid junk news from crowd
 
 - Kafka producer: `confluent-kafka` (pip)
 
-### OCaml Kafka consumer
+### OCaml Kafka consumer (via Python relay)
 
-The OCaml engine reads from Kafka topics using the `ocaml-kafka` opam package, which wraps `librdkafka` (the same C library that `confluent-kafka` for Python uses under the hood). You create a consumer, subscribe to topics, and poll for messages in a loop. Each message is deserialized and dispatched to the matching engine or DSL evaluator.
+The `ocaml-kafka` opam package requires OCaml < 5.0, which conflicts with the engine's OCaml 5.2 requirement. Instead, a lightweight **Python Kafka relay** sits between Kafka and the OCaml engine. The relay consumes from `raw-quotes` and `sentiment` topics and forwards messages over a TCP socket as newline-delimited JSON. The OCaml engine connects to this socket and reads messages using the `Unix` and `Yojson` modules (both already available, no new opam installs).
 
-- Kafka client: `ocaml-kafka` (opam) — wraps `librdkafka`
-- System dependency: `librdkafka-dev` (apt)
+**Protocol:** Each line is a JSON object with a `topic` field to distinguish the source:
+```json
+{"topic":"raw-quotes","symbol":"AAPL","price":187.12,"volume":342,...}
+{"topic":"sentiment","symbol":"AAPL","score":0.65,"headline":"...","reasoning":"..."}
+```
+
+**Components:**
+- `services/kafka_relay/` — Python sidecar: `confluent-kafka` consumer → TCP server on port 9100
+- `lib/kafka_consumer.ml` — OCaml client: connects to relay, parses JSON into `Quote` or `Sentiment` types
+- OCaml dependencies: `yojson` (already installed), `unix` (already a dependency)
 
 ### gRPC layer
 
@@ -271,21 +279,31 @@ docker compose exec kafka kafka-console-consumer --topic sentiment --bootstrap-s
 
 **Pass criteria:** JSON messages appear containing `symbol`, `headline`, `score` (a float between -1.0 and 1.0), and `timestamp`. The first batch should arrive within ~30 seconds of startup. Subsequent batches arrive every ~15 minutes.
 
-### Phase 4: OCaml Kafka consumer
+### Phase 4: OCaml Kafka consumer (via relay)
 
-**Build and run the engine** (with Kafka, ingest, and sentiment already running):
+**Start the relay** (with Kafka and ingest already running):
 ```bash
-cd engine && eval $(opam env) && dune build && dune exec lucid_engine
+docker compose up -d kafka-relay ingest
 ```
 
-**Check engine output for consumed messages:**
-```
-# Engine stdout/logs should show:
-# - "Consumed quote: AAPL @ 187.32" (from raw-quotes)
-# - "Consumed sentiment: AAPL headline score=0.65" (from sentiment)
+**Verify the relay is receiving messages:**
+```bash
+docker compose logs kafka-relay
+# Should show: "Relay listening on 0.0.0.0:9100" and "Subscribed to Kafka topics"
 ```
 
-**Pass criteria:** The engine prints consumed quotes and sentiment scores as they arrive from Kafka. If you have DSL rules loaded, you should also see rule evaluations triggered by incoming quotes.
+**Test the TCP stream from the host:**
+```bash
+nc localhost 9100 | head -5
+```
+You should see newline-delimited JSON with `"topic": "raw-quotes"` flowing.
+
+**Build and run the OCaml engine** (connects to relay on localhost:9100):
+```bash
+cd engine && eval $(opam env) && dune build && dune exec main
+```
+
+**Pass criteria:** The engine connects to the relay and prints consumed quotes and sentiment scores as they arrive. The relay logs should show "Client connected".
 
 ### Phase 5: gRPC layer
 
