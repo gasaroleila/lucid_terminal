@@ -1,5 +1,3 @@
-engine/
-
 # Dune build artifacts
 _build/
 *.install
