@@ -120,6 +120,24 @@ A short Python script that opens a WebSocket connection to Finnhub (`wss://ws.fi
 - WebSocket client: `websockets` (pip) — connects to `wss://ws.finnhub.io`
 - Kafka client: `confluent-kafka` (pip)
 
+If outside market hourse build or re-use an already built python script that performs as follows:
+
+A small Python script that bypasses Finnhub entirely and produces fake quotes directly to the `raw-quotes` Kafka topic. This is the "dummy data first" approach from the project TODO and the most practical option for daily development — no external dependency, full control over the data.
+
+The simulator should:
+
+- Generate quotes for a configurable set of symbols (AAPL, MSFT, NVDA)
+- Randomize prices around a base value with small drift (e.g., $187.00 ± $0.50)
+- Vary volume realistically (100–1000 shares per tick)
+- Publish at a configurable rate (e.g., 10–100 ticks/second)
+- Optionally simulate edge cases: sudden price drops, wide spreads, volume spikes
+
+```
+Simulator (Python) ──produce──▶ Kafka [raw-quotes] ──consume──▶ OCaml Engine
+```
+
+The rest of the system — Kafka, the engine, the DSL, gRPC, the TUI — runs identically. The only difference is the source of the first message.
+
 ### Sentiment service
 
 A Python service that polls NewsAPI for headlines related to the symbols you're trading, runs each headline through a LangGraph pipeline to produce a sentiment score (-1.0 to 1.0), and publishes the result to the `sentiment` Kafka topic using the same `confluent-kafka` producer. The LLM call and pipeline orchestration are handled by LangGraph and LangChain — you define nodes (fetch headlines → score sentiment → format output) and LangGraph manages the execution flow.
@@ -150,6 +168,20 @@ All services are wired together in a single `docker-compose.yml`. Each service i
 
 - Containers: `kafka`, `kafka-ui`, `trading-engine`, `sentiment-service`
 - Orchestration: `docker compose` v2
+
+## Integration Summary
+1. Phase 1: Kafka broker — Docker Compose with
+Confluent Kafka + Zookeeper
+2. Phase 2: Python ingest sidecar — Finnhub
+WebSocket → Kafka raw-quotes
+3. Phase 3: Sentiment service — NewsAPI →
+LangGraph (Anthropic) → Kafka sentiment
+4. Phase 4: OCaml Kafka consumer — ocaml-kafka,
+consume raw-quotes + sentiment
+5. Phase 5: gRPC layer — .proto, ocaml-grpc +
+ocaml-protoc-plugin, streaming RPCs
+6. Phase 6: Docker Compose (full) — Wire all
+services together
 
 ## Phase Verification Guide
 
@@ -209,6 +241,8 @@ docker compose exec kafka kafka-console-consumer --topic raw-quotes --bootstrap-
 ```
 
 **Pass criteria:** JSON quote messages appear in the consumer within a few seconds (during US market hours). Each message should contain fields like `symbol`, `price`, `volume`, `timestamp`. Outside market hours, you may see empty polls — that's normal for Finnhub's free tier.
+
+Note: If outside market hours use the simulated data from Python script.
 
 ### Phase 3: Sentiment service
 
