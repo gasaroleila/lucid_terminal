@@ -39,33 +39,31 @@ let app ~(dimensions : Dimensions.t Bonsai.t) (local_ graph)
     and entry_view
     and bottom_bar
     in
-    let center_top =
-      View.hcat [
+    let col1 = order_book in
+    let col2 =
+      View.vcat [
         positions_view;
-        View.text " ";
-        pnl_view;
-      ]
-    in
-    let center_col =
-      View.vcat [
-        center_top;
-        entry_view;
-      ]
-    in
-    let left_col =
-      View.vcat [
-        order_book;
+        View.text "";
         risk_view;
       ]
     in
-    let right_col = news_view in
+    let col3 =
+      View.vcat [
+        pnl_view;
+        View.text "";
+        entry_view;
+      ]
+    in
+    let col4 = news_view in
     let main_area =
       View.hcat [
-        left_col;
+        col1;
         View.text " ";
-        center_col;
+        col2;
         View.text " ";
-        right_col;
+        col3;
+        View.text " ";
+        col4;
       ]
     in
     let full = View.vcat [

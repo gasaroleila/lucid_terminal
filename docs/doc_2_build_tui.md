@@ -8,6 +8,7 @@ The dashboard design is shown below;
 ![1783801064982](image/doc_2_build_tui/1783801064982.png)
 
 Explicit view of dashboard design
+
 ```
 ┌──────────────────────┬──────────────────────┬────────────────────┬──────────────────────────────┐
 │ lucid-terminal  AAPL │ session 09:31:04     │                    │              feed  lat 0.4ms │
@@ -72,5 +73,6 @@ how you act. Consists of two actions (buy/sell), a quantity field, and a limit p
 
 plumbing health. Confirmation your connection to the venue is alive, how many messages you've processed, whether any data was dropped, and risk-limit warnings. That amber "vega limit 80%" is a heads-up that you're approaching a preset ceiling on volatility exposure — a nudge to slow down before a system or risk manager stops you.
 
-# Fixes to Accomodate Real Time Data Integration 
+# Fixes to Accomodate Real Time Data Integration
+
 [TO BE ADDED AFTER REAL TIME DATA INTEGRATION]
