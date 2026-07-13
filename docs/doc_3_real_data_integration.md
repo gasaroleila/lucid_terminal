@@ -140,10 +140,17 @@ The rest of the system — Kafka, the engine, the DSL, gRPC, the TUI — runs id
 
 ### Sentiment service
 
-A Python service that polls NewsAPI for headlines related to the symbols you're trading, runs each headline through a LangGraph pipeline to produce a sentiment score (-1.0 to 1.0), and publishes the result to the `sentiment` Kafka topic using the same `confluent-kafka` producer. The LLM call and pipeline orchestration are handled by LangGraph and LangChain — you define nodes (fetch headlines → score sentiment → format output) and LangGraph manages the execution flow.
+A Python service that polls NewsAPI for headlines related to the symbols you're trading, runs each headline through a LangGraph pipeline backed by Groq (`openai/gpt-oss-20b`) to produce a sentiment score (-1.0 to 1.0), and publishes the result to the `sentiment` Kafka topic using the same `confluent-kafka` producer. The LLM call and pipeline orchestration are handled by LangGraph and LangChain — you define nodes (fetch headlines → score sentiment → format output) and LangGraph manages the execution flow. Groq provides fast inference with generous free-tier rate limits.
 
 - News source: `newsapi-python` (pip) — official Python client for NewsAPI.org
-- Sentiment pipeline: `langgraph` + `langchain` (pip)
+- Sentiment pipeline: `langgraph` + `langchain-groq` (pip) — LLM: `openai/gpt-oss-20b` via Groq
+
+Inside the sentiment pipeline, apply these filters to avoid junk news from crowding our logs.
+
+* NewsAPI query parameters: Don't just search for "Amazon." Use the category=business and lang=en filters on /v2/top-headlines and restrict sources to financial publishers.
+
+* Classifier function as a gate: Before scoring, the classifier asks the LLM a cheaper question: "Is this headline about the publicly traded company Amazon (AMZN) in a financial context? Yes or no." That's a fast, low-token call. If it says no, the pipeline short-circuits and never calls the scorer. LangGraph If the headline classifier returns "not relevant," skip the next node.
+
 - Kafka producer: `confluent-kafka` (pip)
 
 ### OCaml Kafka consumer

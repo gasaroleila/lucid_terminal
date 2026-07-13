@@ -52,17 +52,17 @@ services:
     depends_on:
       - kafka
 
-  # ── Sentiment Service (Python + LangGraph) ─────────────────
-  # Weekend 4: AI context layer
+  # ── Sentiment Service (Python + LangGraph + Groq) ───────────
   sentiment-service:
     build:
       context: ./services/sentiment
       dockerfile: Dockerfile
-    ports:
-      - "50051:50051"    # gRPC port
+    env_file:
+      - .env
     environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-your-key-here}
       - KAFKA_BOOTSTRAP=kafka:9092
+      - SYMBOLS=AAPL,MSFT,GOOGL,AMZN,TSLA
+      - POLL_INTERVAL=900
     depends_on:
       - kafka
 

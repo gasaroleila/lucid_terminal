@@ -1,158 +1,193 @@
-"""
-Sentiment Analysis Service — Weekend 4 starter.
-
-Uses LangGraph to analyze news headlines and produce sentiment scores.
-Publishes results to Kafka for the OCaml engine to consume.
-
-Prerequisites:
-    pip install langgraph langchain-openai confluent-kafka grpcio grpcio-tools
-
-Architecture:
-    [News Feed] → [LangGraph Pipeline] → [Kafka: sentiment-scores]
-                                       → [gRPC Server for direct queries]
-"""
-
 import json
-import time
 import os
-from concurrent import futures
+import signal
+import time
+from typing import TypedDict
 
-# -- LangGraph imports (install: pip install langgraph langchain-openai) --
-# from langgraph.graph import StateGraph, END
-# from langchain_openai import ChatOpenAI
+from confluent_kafka import Producer
+from langchain_groq import ChatGroq
+from langgraph.graph import StateGraph, END
+from newsapi import NewsApiClient
 
-# -- Kafka (install: pip install confluent-kafka) --
-# from confluent_kafka import Producer
+GROQ_API_KEY = os.environ["GROQ_API_KEY"]
+NEWS_API_KEY = os.environ["NEWS_API_KEY"]
+KAFKA_BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092")
+SYMBOLS = os.environ.get("SYMBOLS", "AAPL,MSFT,GOOGL,AMZN,TSLA").split(",")
+POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "900"))  # 15 min default
+TOPIC = "sentiment"
 
-# -- gRPC (install: pip install grpcio grpcio-tools) --
-# import grpc
-# from generated import sentiment_pb2, sentiment_pb2_grpc  # After protoc
+FINANCIAL_SOURCES = ",".join([
+    "bloomberg", "reuters", "the-wall-street-journal", "financial-times",
+    "business-insider", "cnbc", "fortune", "the-verge", "techcrunch",
+    "ars-technica", "wired",
+])
 
-
-# ═══════════════════════════════════════════════════════════════
-#  STEP 1: Define the LangGraph sentiment pipeline
-# ═══════════════════════════════════════════════════════════════
-
-# Uncomment and fill in when you reach Weekend 4:
-
-# class SentimentState:
-#     """State that flows through the LangGraph pipeline."""
-#     headline: str = ""
-#     symbol: str = ""
-#     sentiment_score: float = 0.0  # -1.0 (bearish) to 1.0 (bullish)
-#     reasoning: str = ""
-#
-#
-# def analyze_headline(state: SentimentState) -> SentimentState:
-#     """Use an LLM to analyze sentiment of a news headline."""
-#     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-#     prompt = f"""
-#     Analyze the sentiment of this financial news headline for {state.symbol}.
-#     Return a JSON object with:
-#     - score: float from -1.0 (very bearish) to 1.0 (very bullish)
-#     - reasoning: brief explanation
-#
-#     Headline: {state.headline}
-#     """
-#     response = llm.invoke(prompt)
-#     data = json.loads(response.content)
-#     state.sentiment_score = data["score"]
-#     state.reasoning = data["reasoning"]
-#     return state
-#
-#
-# def build_pipeline():
-#     """Build the LangGraph pipeline."""
-#     graph = StateGraph(SentimentState)
-#     graph.add_node("analyze", analyze_headline)
-#     graph.set_entry_point("analyze")
-#     graph.add_edge("analyze", END)
-#     return graph.compile()
+newsapi = NewsApiClient(api_key=NEWS_API_KEY)
+producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP})
+llm = ChatGroq(model="openai/gpt-oss-20b", temperature=0, api_key=GROQ_API_KEY)
+running = True
 
 
-# ═══════════════════════════════════════════════════════════════
-#  STEP 2: Kafka producer (publishes sentiment scores)
-# ═══════════════════════════════════════════════════════════════
-
-# def create_kafka_producer():
-#     """Create a Kafka producer for publishing sentiment scores."""
-#     conf = {
-#         "bootstrap.servers": os.getenv("KAFKA_BOOTSTRAP", "localhost:9092"),
-#         "client.id": "sentiment-producer",
-#     }
-#     return Producer(conf)
-#
-#
-# def publish_sentiment(producer, symbol, score, reasoning):
-#     """Publish a sentiment score to Kafka."""
-#     message = {
-#         "symbol": symbol,
-#         "score": score,
-#         "reasoning": reasoning,
-#         "timestamp": time.time(),
-#     }
-#     producer.produce(
-#         "sentiment-scores",
-#         key=symbol.encode(),
-#         value=json.dumps(message).encode(),
-#     )
-#     producer.flush()
+def shutdown(sig, frame):
+    global running
+    print(f"Received {signal.Signals(sig).name}, shutting down...")
+    running = False
 
 
-# ═══════════════════════════════════════════════════════════════
-#  STEP 3: gRPC server (for direct queries from OCaml engine)
-# ═══════════════════════════════════════════════════════════════
-
-# Define your protobuf schema in sentiment.proto:
-#
-# syntax = "proto3";
-# service SentimentService {
-#   rpc GetSentiment (SentimentRequest) returns (SentimentResponse);
-#   rpc StreamSentiment (SentimentRequest) returns (stream SentimentResponse);
-# }
-# message SentimentRequest { string symbol = 1; }
-# message SentimentResponse {
-#   string symbol = 1;
-#   float score = 2;
-#   string reasoning = 3;
-#   double timestamp = 4;
-# }
-#
-# Generate with: python -m grpc_tools.protoc -I. --python_out=generated --grpc_python_out=generated sentiment.proto
+signal.signal(signal.SIGTERM, shutdown)
+signal.signal(signal.SIGINT, shutdown)
 
 
-# ═══════════════════════════════════════════════════════════════
-#  Minimal working version (no external deps, for testing)
-# ═══════════════════════════════════════════════════════════════
+def delivery_report(err, msg):
+    if err:
+        print(f"Delivery failed: {err}")
 
-def simple_sentiment(headline: str) -> float:
-    """Dead-simple keyword-based sentiment for testing without an LLM.
-    Replace this with the LangGraph pipeline when ready."""
-    positive = ["surge", "rally", "beat", "growth", "profit", "bullish", "up", "gain", "record"]
-    negative = ["crash", "drop", "loss", "bearish", "down", "miss", "decline", "fear", "sell"]
 
-    headline_lower = headline.lower()
-    pos_count = sum(1 for w in positive if w in headline_lower)
-    neg_count = sum(1 for w in negative if w in headline_lower)
+# -- LangGraph pipeline --
 
-    total = pos_count + neg_count
-    if total == 0:
-        return 0.0
-    return (pos_count - neg_count) / total
+SYMBOL_NAMES = {
+    "AAPL": "Apple", "MSFT": "Microsoft", "GOOGL": "Google/Alphabet",
+    "AMZN": "Amazon", "TSLA": "Tesla", "NVDA": "NVIDIA", "META": "Meta",
+}
+
+
+class SentimentState(TypedDict):
+    headline: str
+    symbol: str
+    relevant: bool
+    score: float
+    reasoning: str
+
+
+def classify_relevance(state: SentimentState) -> SentimentState:
+    company = SYMBOL_NAMES.get(state["symbol"], state["symbol"])
+    prompt = (
+        f'Is this headline about the publicly traded company {company} ({state["symbol"]}) '
+        f'in a financial context? Answer ONLY "yes" or "no".\n\n'
+        f'Headline: {state["headline"]}'
+    )
+    response = llm.invoke(prompt)
+    relevant = response.content.strip().lower().startswith("yes")
+    return {**state, "relevant": relevant}
+
+
+def score_headline(state: SentimentState) -> SentimentState:
+    prompt = (
+        f"Analyze this financial news headline for {state['symbol']}. "
+        f"Return ONLY a JSON object with two fields: "
+        f'"score" (float from -1.0 bearish to 1.0 bullish) and '
+        f'"reasoning" (one sentence).\n\n'
+        f"Headline: {state['headline']}"
+    )
+    response = llm.invoke(prompt)
+    try:
+        data = json.loads(response.content)
+        return {**state, "score": float(data["score"]), "reasoning": data["reasoning"]}
+    except (json.JSONDecodeError, KeyError):
+        return {**state, "score": 0.0, "reasoning": "Failed to parse LLM response"}
+
+
+def route_after_classify(state: SentimentState) -> str:
+    return "score" if state["relevant"] else END
+
+
+graph = StateGraph(SentimentState)
+graph.add_node("classify", classify_relevance)
+graph.add_node("score", score_headline)
+graph.set_entry_point("classify")
+graph.add_conditional_edges("classify", route_after_classify, {"score": "score", END: END})
+graph.add_edge("score", END)
+pipeline = graph.compile()
+
+
+# -- Main loop --
+
+def fetch_and_score():
+    # Search for our symbols specifically, restricted to financial sources
+    query = " OR ".join(f'"{SYMBOL_NAMES.get(s, s)}"' for s in SYMBOLS)
+    try:
+        response = newsapi.get_everything(
+            q=query,
+            language="en",
+            sort_by="publishedAt",
+            domains="bloomberg.com,reuters.com,wsj.com,cnbc.com,ft.com,businessinsider.com,fortune.com,marketwatch.com,seekingalpha.com,barrons.com",
+            page_size=20,
+        )
+    except Exception as e:
+        print(f"NewsAPI error: {e}")
+        return
+
+    articles = response.get("articles", [])
+    print(f"Fetched {len(articles)} financial headlines")
+
+    scored = 0
+    skipped = 0
+
+    for article in articles:
+        headline = article.get("title", "")
+        if not headline:
+            continue
+
+        # match headline to a symbol
+        matched_symbol = None
+        for sym in SYMBOLS:
+            company = SYMBOL_NAMES.get(sym, sym)
+            if sym.lower() in headline.lower() or company.lower() in headline.lower():
+                matched_symbol = sym
+                break
+        if not matched_symbol:
+            continue  # skip headlines that don't mention any of our symbols
+
+        result = pipeline.invoke({
+            "headline": headline,
+            "symbol": matched_symbol,
+            "relevant": False,
+            "score": 0.0,
+            "reasoning": "",
+        })
+
+        if not result["relevant"]:
+            skipped += 1
+            print(f"  [SKIP] {matched_symbol}: {headline[:60]}...")
+            continue
+
+        msg = {
+            "symbol": result["symbol"],
+            "headline": headline,
+            "score": result["score"],
+            "reasoning": result["reasoning"],
+            "source": article.get("source", {}).get("name", ""),
+            "url": article.get("url", ""),
+            "timestamp": time.time(),
+        }
+
+        producer.produce(
+            TOPIC,
+            key=result["symbol"],
+            value=json.dumps(msg),
+            callback=delivery_report,
+        )
+        scored += 1
+        print(f"  [{result['score']:+.2f}] {result['symbol']}: {headline[:60]}...")
+
+    producer.flush(timeout=5)
+    print(f"Scored {scored}, skipped {skipped} irrelevant")
 
 
 if __name__ == "__main__":
-    # Quick test
-    test_headlines = [
-        ("AAPL", "Apple reports record quarterly profit, stock surges"),
-        ("GOOG", "Google faces antitrust fears, stock drops in pre-market"),
-        ("ETH", "Ethereum network upgrade goes smoothly"),
-        ("AAPL", "Apple warns of supply chain issues, misses revenue target"),
-    ]
+    print(f"Sentiment service started: {len(SYMBOLS)} symbols, polling every {POLL_INTERVAL}s")
 
-    print("Sentiment Analysis (simple keyword-based)")
-    print("=" * 50)
-    for symbol, headline in test_headlines:
-        score = simple_sentiment(headline)
-        label = "BULLISH" if score > 0.2 else "BEARISH" if score < -0.2 else "NEUTRAL"
-        print(f"  [{label:>7}] {score:+.2f}  {symbol}: {headline}")
+    # Run immediately on startup
+    fetch_and_score()
+
+    while running:
+        print(f"Next poll in {POLL_INTERVAL}s...")
+        for _ in range(POLL_INTERVAL):
+            if not running:
+                break
+            time.sleep(1)
+        if running:
+            fetch_and_score()
+
+    producer.flush(timeout=5)
+    print("Shutdown complete.")

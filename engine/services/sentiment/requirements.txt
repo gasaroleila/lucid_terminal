@@ -1,6 +1,4 @@
-# Core (uncomment as you add features)
-# langgraph>=0.2.0
-# langchain-openai>=0.1.0
-# confluent-kafka>=2.3.0
-# grpcio>=1.60.0
-# grpcio-tools>=1.60.0
+langgraph>=0.2.0
+langchain-groq>=0.3.0
+newsapi-python>=0.2.7
+confluent-kafka>=2.3.0
