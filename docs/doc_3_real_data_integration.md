@@ -1,12 +1,12 @@
 # Engine Real Time Data Streaming
 
-## Using gRPC + Kafka Instead of REST
+## Using Kafka + TCP Instead of REST
 
 **Kafka** is the central nervous system. Every event in the platform — a new quote, a submitted order, a completed trade, a sentiment score — is a message on a Kafka topic. Services don't talk to each other directly for data distribution; they publish to Kafka and consume from it. This means any service can be restarted, added, or removed without rewiring anything else. It also means every event is persisted and replayable, which is critical for debugging and auditing a trading system.
 
-**gRPC** is the direct line between the OCaml engine and the TUI. The dashboard needs a live, low-latency, bidirectional connection to the engine: it subscribes to order book updates (server → client stream) and sends user commands like manual order submissions (client → server calls). gRPC with protobuf is far faster than JSON over HTTP for this structured, high-frequency data.
+**TCP with newline-delimited JSON** is the direct line between the OCaml engine and the TUI. The dashboard needs a live, low-latency, bidirectional connection to the engine: it subscribes to order book updates (server → client stream) and sends user commands like manual order submissions (client → server calls). Since both the engine and TUI are OCaml in the same repo, they share types at compile time — stronger than protobuf contracts. A TCP socket with JSON framing keeps the protocol simple with zero extra dependencies (the OxCaml compiler's patched packages conflict with `grpc-eio`'s dependency chain, making gRPC impractical in this setup).
 
-The rule of thumb: Kafka for "many services need this data," gRPC for "one service is talking to one other service and needs a response."
+The rule of thumb: Kafka for "many services need this data," TCP for "one service is talking to one other service and needs a response."
 
 ## Architecture
 
@@ -43,12 +43,12 @@ Kafka [raw-quotes] ──consume──▶ OCaml Engine (market data handler)
                                        │    Kafka [trades] ◀── trade results
                                        │
                                        ▼
-                                gRPC StreamOrderBook ──push──▶ TUI
+                                TCP stream ──push──▶ TUI
 ```
 
 The engine's Kafka consumer reads from `raw-quotes` in a tight loop. Each quote updates the engine's internal market state, which triggers DSL rule evaluation. If a rule fires (e.g., `WHEN price("AAPL") < 150.0 THEN buy(...)`), the resulting order is fed into the matching engine. Any trades that result are published to the `trades` topic.
 
-Simultaneously, every time the order book changes, the engine pushes an `OrderBookUpdate` over the gRPC stream to any connected TUI clients.
+Simultaneously, every time the order book changes, the engine pushes an `OrderBookUpdate` over the TCP stream to the connected TUI.
 
 ### 3. Sentiment flows in
 
@@ -65,15 +65,15 @@ NewsAPI ──poll──▶ Sentiment Service (LangGraph)
                                                 DSL can reference sentiment()
                                                       │
                                                       ▼
-                                                gRPC StreamSentiment ──push──▶ TUI
+                                                TCP stream ──push──▶ TUI
 ```
 
-The sentiment service polls NewsAPI on a schedule (respecting the 100 requests/day free tier — roughly once every 15 minutes), runs headlines through a LangGraph pipeline that scores them from -1.0 (bearish) to 1.0 (bullish), and publishes the scores to the `sentiment` Kafka topic. The OCaml engine consumes these scores and makes them available to the DSL evaluator. Scores are also forwarded over gRPC to the TUI for display.
+The sentiment service polls NewsAPI on a schedule (respecting the 100 requests/day free tier — roughly once every 15 minutes), runs headlines through a LangGraph pipeline that scores them from -1.0 (bearish) to 1.0 (bullish), and publishes the scores to the `sentiment` Kafka topic. The OCaml engine consumes these scores and makes them available to the DSL evaluator. Scores are also forwarded over the TCP stream to the TUI for display.
 
 ### 4. TUI sends commands back
 
 ```
-TUI ──gRPC SubmitOrder──▶ OCaml Engine
+TUI ──TCP SubmitOrder──▶ OCaml Engine
                                 │
                                 ▼
                           Matching Engine
@@ -82,26 +82,26 @@ TUI ──gRPC SubmitOrder──▶ OCaml Engine
                           Kafka [trades] (if matched)
                                 │
                                 ▼
-                          gRPC StreamTrades ──push──▶ TUI (confirmation)
+                          TCP stream ──push──▶ TUI (confirmation)
 ```
 
-When a user manually submits an order through the TUI, it calls the `SubmitOrder` gRPC RPC. The engine processes the order through the matching engine. If it results in a trade, that trade is published to Kafka and also pushed back to the TUI over the `StreamTrades` gRPC stream.
+When a user manually submits an order through the TUI, it sends a `SubmitOrder` JSON message over the TCP connection. The engine processes the order through the matching engine. If it results in a trade, that trade is published to Kafka and also pushed back to the TUI over the TCP stream.
 
 ### 5. TUI initial sync
 
-When the TUI first connects, it needs the current state of the order book, not just future deltas. For this, the engine periodically publishes full order book snapshots to the `order-book-snapshots` Kafka topic (every ~1 second). The TUI can either consume the latest snapshot from Kafka directly, or request it via a gRPC call, then switch to the streaming updates for real-time deltas.
+When the TUI first connects, it needs the current state of the order book, not just future deltas. The engine sends a full order book snapshot over the TCP connection on connect, then switches to streaming deltas for real-time updates.
 
 ### 6. How each TUI panel gets its data
 
-Every panel in the TUI receives data exclusively through gRPC streams from the OCaml engine. The TUI never reads from Kafka directly (except for initial sync). The engine acts as the single gateway between Kafka and the frontend.
+Every panel in the TUI receives data exclusively through the TCP stream from the OCaml engine. The TUI never reads from Kafka directly. The engine acts as the single gateway between Kafka and the frontend. Each message is a JSON line with a `type` field to route it to the correct panel.
 
-**Order book panel** — Subscribes to `StreamOrderBook`. Every time the engine's internal book changes (new quote consumed from Kafka `raw-quotes`, or an order matched), the engine pushes an `OrderBookUpdate` containing all bid/ask price levels, the spread, and the midpoint. The TUI renders this as the price ladder with size bars.
+**Order book panel** — Receives `order_book_update` messages. Every time the engine's internal book changes (new quote consumed from Kafka `raw-quotes`, or an order matched), the engine pushes an update containing all bid/ask price levels, the spread, and the midpoint. The TUI renders this as the price ladder with size bars.
 
-**Positions / risk panel** — Subscribes to `StreamPositions`. Whenever a fill updates the engine's inventory, it pushes the current positions (symbol, quantity, unrealized P&L) and risk metrics (net delta, vega, gross exposure). The TUI renders the positions table and risk section from this single stream.
+**Positions / risk panel** — Receives `position_update` messages. Whenever a fill updates the engine's inventory, it pushes the current positions (symbol, quantity, unrealized P&L) and risk metrics (net delta, vega, gross exposure). The TUI renders the positions table and risk section from this stream.
 
-**P&L / order entry panel** — Subscribes to `StreamTrades` for fill confirmations and day P&L updates. When the user submits an order via the BUY/SELL buttons (F1/F2), the TUI calls the `SubmitOrder` gRPC unary RPC. The engine processes it through the matching engine, and if it fills, the trade confirmation arrives back on the `StreamTrades` stream. The working order count updates on the same stream.
+**P&L / order entry panel** — Receives `trade` messages for fill confirmations and day P&L updates. When the user submits an order via the BUY/SELL buttons (F1/F2), the TUI sends a `submit_order` JSON message over the TCP connection. The engine processes it through the matching engine, and if it fills, the trade confirmation arrives back on the stream. The working order count updates on the same stream.
 
-**News / sentiment panel** — Subscribes to `StreamSentiment`. The sentiment service polls NewsAPI (~every 15 minutes on the free tier), scores each headline through LangGraph, and publishes to the Kafka `sentiment` topic. The engine consumes that topic and forwards each scored headline over the gRPC stream. The TUI prepends new entries and pushes older ones down. Between polls the panel is static — "live" means latest available, not real-time.
+**News / sentiment panel** — Receives `sentiment` messages. The sentiment service polls NewsAPI (~every 15 minutes on the free tier), scores each headline through LangGraph, and publishes to the Kafka `sentiment` topic. The engine consumes that topic and forwards each scored headline over the TCP stream. The TUI prepends new entries and pushes older ones down. Between polls the panel is static — "live" means latest available, not real-time.
 
 ## How Each Component Is Built
 
@@ -136,7 +136,7 @@ The simulator should:
 Simulator (Python) ──produce──▶ Kafka [raw-quotes] ──consume──▶ OCaml Engine
 ```
 
-The rest of the system — Kafka, the engine, the DSL, gRPC, the TUI — runs identically. The only difference is the source of the first message.
+The rest of the system — Kafka, the engine, the DSL, TCP streaming, the TUI — runs identically. The only difference is the source of the first message.
 
 ### Sentiment service
 
@@ -168,14 +168,24 @@ The `ocaml-kafka` opam package requires OCaml < 5.0, which conflicts with the en
 - `lib/kafka_consumer.ml` — OCaml client: connects to relay, parses JSON into `Quote` or `Sentiment` types
 - OCaml dependencies: `yojson` (already installed), `unix` (already a dependency)
 
-### gRPC layer
+### TCP streaming layer (engine ↔ TUI)
 
-The contract between the OCaml engine and the TUI is defined in a single `.proto` file. From this file, code generation produces typed stubs on both sides. On the OCaml side, `ocaml-grpc` and `ocaml-protoc-plugin` generate server code from the proto. On the TUI side (if the TUI client is Python), `grpcio-tools` generates the client stubs. The transport, serialization, and streaming are all handled by the gRPC framework — you implement the service methods and the library does the rest.
+The OCaml engine runs a TCP server. The TUI connects as a client. Communication is bidirectional over a single socket using newline-delimited JSON — one JSON object per line, each with a `type` field for routing.
 
-- Proto compiler: `protoc` (system install)
-- OCaml server: `ocaml-grpc` + `ocaml-protoc-plugin` (opam)
-- Python client (if TUI is Python): `grpcio` + `grpcio-tools` (pip)
-- OCaml client (if TUI is OCaml): same `ocaml-grpc` package
+Engine → TUI (server pushes):
+- `{"type":"order_book_update", "bids":[...], "asks":[...], "spread":0.05, ...}`
+- `{"type":"trade", "symbol":"AAPL", "price":187.50, "qty":100, ...}`
+- `{"type":"position_update", "positions":[...], "pnl":1234.56, ...}`
+- `{"type":"sentiment", "symbol":"AAPL", "headline":"...", "score":0.65, ...}`
+
+TUI → Engine (client sends):
+- `{"type":"submit_order", "symbol":"AAPL", "side":"BUY", "qty":100, "price":150.0}`
+
+Since both sides are OCaml, the message types are shared at compile time via the `trading_engine` library — no code generation or schema files needed. The JSON serialization uses `yojson` (already installed).
+
+- OCaml dependencies: `unix` (TCP sockets), `yojson` (JSON parsing) — both already available
+- No new opam installs required
+- Why not gRPC: the `grpc-eio` opam package conflicts with the OxCaml compiler's patched dependency chain (`h2 < 0.13.0` requires standard `ppx_deriving`/`eio`, which clash with the `+ox` patched versions)
 
 ### Docker Compose
 
@@ -193,8 +203,8 @@ WebSocket → Kafka raw-quotes
 LangGraph (Anthropic) → Kafka sentiment
 4. Phase 4: OCaml Kafka consumer — ocaml-kafka,
 consume raw-quotes + sentiment
-5. Phase 5: gRPC layer — .proto, ocaml-grpc +
-ocaml-protoc-plugin, streaming RPCs
+5. Phase 5: TCP streaming layer — engine ↔ TUI
+bidirectional JSON over TCP sockets
 6. Phase 6: Docker Compose (full) — Wire all
 services together
 
@@ -305,31 +315,28 @@ cd engine && eval $(opam env) && dune build && dune exec main
 
 **Pass criteria:** The engine connects to the relay and prints consumed quotes and sentiment scores as they arrive. The relay logs should show "Client connected".
 
-### Phase 5: gRPC layer
+### Phase 5: TCP streaming layer (engine ↔ TUI)
 
-**Start the engine with gRPC server** (with Kafka pipeline running):
+**Start the engine TCP server** (with Kafka pipeline and relay running):
 ```bash
-cd engine && eval $(opam env) && dune exec lucid_engine
-# Should print: gRPC server listening on 0.0.0.0:50051
+cd engine && eval $(opam env) && dune build && dune exec main
+# Should print: TCP server listening on 0.0.0.0:9200
 ```
 
-**Test with grpcurl (install: `brew install grpcurl`):**
+**Test the stream with nc:**
 ```bash
-# List available services
-grpcurl -plaintext localhost:50051 list
+# Connect and see order book updates streaming
+nc localhost 9200 | head -5
+# Should show JSON lines with "type":"order_book_update"
 
-# Test the order book stream (streams until you Ctrl-C)
-grpcurl -plaintext localhost:50051 lucid.Engine/StreamOrderBook
-
-# Test submitting an order
-grpcurl -plaintext -d '{"symbol": "AAPL", "side": "BUY", "quantity": 10, "price": 150.0}' \
-  localhost:50051 lucid.Engine/SubmitOrder
+# Test submitting an order (in another terminal)
+echo '{"type":"submit_order","symbol":"AAPL","side":"BUY","qty":100,"price":150.0}' | nc localhost 9200
 ```
 
 **Pass criteria:**
-- `list` shows `lucid.Engine` service
-- `StreamOrderBook` outputs JSON order book updates as they arrive
-- `SubmitOrder` returns an acknowledgment with an order ID
+- `nc localhost 9200` outputs JSON order book updates as they arrive
+- Submitting an order returns a trade confirmation or acknowledgment
+- Engine logs show "Client connected"
 
 ### Phase 6: Docker Compose (full stack)
 
