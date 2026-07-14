@@ -91,7 +91,7 @@ Set `INGEST_MODE=simulate` in `engine/.env`, then restart ingest:
 docker compose up -d ingest
 ```
 
-### Teardown
+### Stop all services
 
 ```bash
 cd engine
