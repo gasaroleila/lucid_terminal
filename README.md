@@ -1,6 +1,6 @@
 # Lucid Terminal
 
-A real-time trading terminal built with OCaml. Live order book, matching engine, news sentiment, and order entry — all streaming through Kafka and rendered in a terminal UI.
+A real-time trading terminal built with OCaml. Live order book, matching engine, news sentiment, and order entry;all streaming through Kafka and rendered in a terminal UI.
 
 ```
 Finnhub / Simulator ──▶ Kafka ──▶ OCaml Engine ──TCP──▶ TUI
