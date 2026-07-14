@@ -48,7 +48,7 @@ services:
       - FINNHUB_API_KEY=${FINNHUB_API_KEY}
       - KAFKA_BOOTSTRAP=kafka:9092
       - SYMBOLS=AAPL,MSFT,GOOGL,AMZN,TSLA
-      - INGEST_MODE=${INGEST_MODE:-simulate}
+      - INGEST_MODE=${INGEST_MODE:-live}
     depends_on:
       - kafka
 
