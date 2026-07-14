@@ -50,7 +50,12 @@ let parse_message json_str =
   with _ -> Unknown json_str
 
 let connect ~host ~port =
-  let addr = Unix.ADDR_INET (Unix.inet_addr_of_string host, port) in
+  let inet_addr =
+    try Unix.inet_addr_of_string host
+    with Failure _ ->
+      (Unix.gethostbyname host).Unix.h_addr_list.(0)
+  in
+  let addr = Unix.ADDR_INET (inet_addr, port) in
   let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
   Unix.connect sock addr;
   let ic = Unix.in_channel_of_descr sock in

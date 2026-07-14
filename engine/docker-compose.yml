@@ -84,9 +84,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    ports:
+      - "9200:9200"
     environment:
       - KAFKA_RELAY_HOST=kafka-relay
       - KAFKA_RELAY_PORT=9100
+      - ENGINE_PORT=9200
     depends_on:
       - kafka-relay
 

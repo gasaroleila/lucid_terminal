@@ -173,7 +173,9 @@ let run ~relay_host ~relay_port ~listen_port ~symbols =
      with Unix.Unix_error (Unix.EWOULDBLOCK, _, _) -> ()
         | Unix.Unix_error (Unix.EAGAIN, _, _) -> ());
 
-    (* Read from Kafka relay *)
+    (* Read from Kafka relay — skip if no data ready *)
+    let relay_ready, _, _ = Unix.select [relay_sock] [] [] 0.01 in
+    if relay_ready <> [] then
     (match Kafka_consumer.read_message relay_ic with
      | Some (Kafka_consumer.Quote q) ->
        (* Generate a simulated order from the quote *)
@@ -222,6 +224,10 @@ let run ~relay_host ~relay_port ~listen_port ~symbols =
            let line = input_line client.ic in
            match parse_tui_command line with
            | Some order ->
+             Printf.printf "Order received: %s %s %d @ %.2f\n%!"
+               (match order.side with Buy -> "BUY" | Sell -> "SELL")
+               order.symbol order.qty
+               (match order.order_type with Limit p -> p | Market -> 0.0);
              (match find_book state order.symbol with
               | Some book ->
                 let (book', result) = Matching_engine.submit_order book order in

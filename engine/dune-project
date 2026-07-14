@@ -16,4 +16,5 @@
  (synopsis "A matching engine and trading DSL in OCaml")
  (depends
   (ocaml (>= 5.1))
-  (dune (>= 3.0))))
+  (dune (>= 3.0))
+  yojson))

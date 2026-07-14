@@ -1,11 +1,11 @@
 # Dockerfile — Multi-stage build for the OCaml trading engine
 # Stage 1: Build
-FROM ocaml/opam:ubuntu-24.04-ocaml-5.1 AS builder
+FROM ocaml/opam:ubuntu-24.04-ocaml-5.2 AS builder
 
 WORKDIR /app
 COPY --chown=opam:opam . .
 
-RUN opam install -y dune && \
+RUN opam install -y yojson && \
     eval $(opam env) && \
     dune build bin/main.exe
 
