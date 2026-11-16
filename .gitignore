@@ -23,3 +23,7 @@ _opam/
 # Editor
 .merlin
 *.annot
+
+# Environment / secrets
+.env
+engine/.env

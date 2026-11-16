@@ -1,22 +1,5 @@
-(** dsl_lexer.ml — Tokenizer for the trading DSL.
+(** Tokenizer for the trading DSL. *)
 
-    LEARNING NOTES:
-    ===============
-    A lexer (tokenizer) is the first stage of any language implementation.
-    It turns raw text into a stream of "tokens" — meaningful chunks.
-
-    Input:  "WHEN price(\"AAPL\") > 150.0 THEN buy(\"AAPL\", 100, market)"
-    Output: [WHEN; IDENT "price"; LPAREN; STRING "AAPL"; RPAREN; GT;
-             FLOAT 150.0; THEN; IDENT "buy"; ...]
-
-    This is exactly what OCaml's own compiler does to your .ml files.
-    Building a lexer teaches you how programming languages actually work.
-
-    LEARNING NOTE: We define tokens as a variant type. Each token kind is
-    a constructor, and some carry data (STRING holds a string, FLOAT holds
-    a float). Pattern matching then makes it trivial to handle each case. *)
-
-(** Token types for our DSL *)
 type token =
   | WHEN | THEN | AND | OR | NOT     (* Keywords *)
   | IDENT of string                   (* Function/variable names *)
@@ -29,7 +12,6 @@ type token =
   | PLUS | MINUS | STAR | SLASH       (* Arithmetic *)
   | EOF                               (* End of input *)
 
-(** Pretty-print a token for debugging *)
 let string_of_token = function
   | WHEN -> "WHEN" | THEN -> "THEN" | AND -> "AND" | OR -> "OR" | NOT -> "NOT"
   | IDENT s -> Printf.sprintf "IDENT(%s)" s
@@ -41,41 +23,29 @@ let string_of_token = function
   | PLUS -> "+" | MINUS -> "-" | STAR -> "*" | SLASH -> "/"
   | EOF -> "EOF"
 
-(** Lexer state: tracks position in the input string.
-
-    LEARNING NOTE: This is a record with a mutable field.
-    We need mutability here because the lexer advances through
-    the input character by character. `mutable pos` is explicit
-    about what can change. *)
 type lexer_state = {
   input : string;
   mutable pos : int;
 }
 
-(** Create a new lexer *)
 let create input = { input; pos = 0 }
 
-(** Peek at the current character without consuming it *)
 let peek lex =
   if lex.pos >= String.length lex.input then None
   else Some lex.input.[lex.pos]
 
-(** Advance one character *)
 let advance lex = lex.pos <- lex.pos + 1
 
-(** Read the current char and advance *)
 let next_char lex =
   let c = lex.input.[lex.pos] in
   advance lex;
   c
 
-(** Skip whitespace *)
 let rec skip_whitespace lex =
   match peek lex with
   | Some (' ' | '\t' | '\n' | '\r') -> advance lex; skip_whitespace lex
   | _ -> ()
 
-(** Read a string literal (everything between quotes) *)
 let read_string lex =
   advance lex;  (* skip opening quote *)
   let buf = Buffer.create 16 in
@@ -92,7 +62,6 @@ let read_string lex =
   in
   loop ()
 
-(** Read a number (int or float) *)
 let read_number lex =
   let buf = Buffer.create 16 in
   let has_dot = ref false in
@@ -108,7 +77,6 @@ let read_number lex =
   if !has_dot then FLOAT (float_of_string s)
   else INT (int_of_string s)
 
-(** Read an identifier or keyword *)
 let read_ident lex =
   let buf = Buffer.create 16 in
   let rec loop () =
@@ -128,10 +96,6 @@ let read_ident lex =
   | "NOT"  -> NOT
   | _ -> IDENT word
 
-(** Get the next token.
-    LEARNING NOTE: This big match is idiomatic OCaml. Every possible
-    character is handled, and the compiler will warn if we miss one
-    that matters. *)
 let next_token lex =
   skip_whitespace lex;
   match peek lex with
@@ -162,7 +126,6 @@ let next_token lex =
      | _ -> failwith "Unexpected '!'")
   | Some c -> failwith (Printf.sprintf "Unexpected character: '%c'" c)
 
-(** Tokenize an entire input string *)
 let tokenize input =
   let lex = create input in
   let rec loop acc =

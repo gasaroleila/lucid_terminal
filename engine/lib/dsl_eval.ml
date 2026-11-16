@@ -1,21 +1,7 @@
-(** dsl_eval.ml — Evaluates the trading DSL against live market state.
-
-    LEARNING NOTES:
-    ===============
-    The evaluator "walks" the AST tree and computes results.
-    It needs access to market state (prices, volumes, positions, sentiment)
-    to evaluate expressions like price("AAPL") or sentiment("AAPL").
-
-    This is where the DSL connects to the matching engine.
-    Rules fire → actions execute → orders get submitted.
-
-    LEARNING NOTE: The evaluator uses a "context" record that holds all
-    the market state. Functions in the DSL (price, volume, spread, etc.)
-    look things up in this context. This is a common interpreter pattern. *)
+(** Tree-walking evaluator for the trading DSL. *)
 
 open Dsl_parser
 
-(** Runtime values — what expressions evaluate to *)
 type value =
   | VFloat of float
   | VInt of int
@@ -23,7 +9,6 @@ type value =
   | VBool of bool
   | VNone
 
-(** Market context — the state available to DSL rules *)
 type market_context = {
   prices     : (string, float) Hashtbl.t;       (* symbol → last price *)
   volumes    : (string, int) Hashtbl.t;          (* symbol → volume *)
@@ -32,14 +17,12 @@ type market_context = {
   sentiments : (string, float) Hashtbl.t;        (* symbol → sentiment score [-1, 1] *)
 }
 
-(** Actions that the DSL can trigger *)
 type action =
   | ActionBuy of string * int * string     (* symbol, qty, order_type *)
   | ActionSell of string * int * string
   | ActionCancel of string                 (* cancel all orders for symbol *)
   | ActionLog of string                    (* just log a message *)
 
-(** Create an empty market context *)
 let create_context () = {
   prices     = Hashtbl.create 16;
   volumes    = Hashtbl.create 16;
@@ -48,7 +31,6 @@ let create_context () = {
   sentiments = Hashtbl.create 16;
 }
 
-(** Convert a runtime value to float (for comparisons) *)
 let float_of_value = function
   | VFloat f -> f
   | VInt n -> float_of_int n
@@ -56,7 +38,6 @@ let float_of_value = function
   | VBool false -> 0.0
   | _ -> failwith "Cannot convert to float"
 
-(** Convert a runtime value to bool *)
 let bool_of_value = function
   | VBool b -> b
   | VFloat f -> f <> 0.0
@@ -64,14 +45,6 @@ let bool_of_value = function
   | VString s -> s <> ""
   | VNone -> false
 
-(** Evaluate a built-in function call.
-
-    These are the "standard library" of our DSL.
-    Each function looks something up in the market context.
-
-    LEARNING NOTE: This pattern — a big match on function names —
-    is typical for interpreted languages. A production system would
-    use a hashtable of function pointers, but this is clearer for learning. *)
 let eval_builtin ctx name args =
   match name, args with
   (* Market data lookups *)
@@ -103,12 +76,6 @@ let eval_builtin ctx name args =
 
   | name, _ -> failwith (Printf.sprintf "Unknown function: %s" name)
 
-(** Evaluate an expression recursively.
-
-    LEARNING NOTE: This is a textbook tree-walking interpreter.
-    Each AST node type has a case in the match. Recursive calls
-    evaluate sub-expressions. This is elegant in OCaml because
-    pattern matching handles every node type exhaustively. *)
 let rec eval ctx expr =
   match expr with
   | Lit (LitInt n)    -> VInt n
@@ -158,7 +125,6 @@ let rec eval ctx expr =
   | UnaryOp (Not, inner) ->
     VBool (not (bool_of_value (eval ctx inner)))
 
-(** Convert an evaluated action expression into an Action type *)
 let to_action = function
   | Call ("buy", [Lit (LitString sym); qty_expr; type_expr]) ->
     let qty_str = string_of_expr qty_expr in
@@ -174,7 +140,6 @@ let to_action = function
     Some (ActionLog msg)
   | _ -> None
 
-(** Evaluate a single rule: check condition, return action if true *)
 let eval_rule ctx rule =
   let condition_result = eval ctx rule.condition in
   if bool_of_value condition_result then
@@ -182,7 +147,5 @@ let eval_rule ctx rule =
   else
     None
 
-(** Evaluate all rules against current market state.
-    Returns a list of actions to execute. *)
 let eval_program ctx program =
   List.filter_map (eval_rule ctx) program

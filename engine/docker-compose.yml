@@ -1,5 +1,4 @@
 # docker-compose.yml — Full trading system stack
-# Use this starting Weekend 3 when you add Kafka and the sentiment service.
 #
 # Run: docker-compose up -d
 # Kafka UI: http://localhost:8080
