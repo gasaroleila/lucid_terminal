@@ -1,0 +1,5 @@
+FROM python:3.12-slim
+RUN pip install --no-cache-dir confluent-kafka
+WORKDIR /bench
+COPY spike_test.py .
+CMD ["python", "-u", "spike_test.py"]

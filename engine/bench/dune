@@ -1,0 +1,3 @@
+(executable
+ (name bench_throughput)
+ (libraries trading_engine unix time_now base))

@@ -8,6 +8,7 @@ bug-reports: "https://github.com/yourusername/ocaml-trading-engine/issues"
 depends: [
   "ocaml" {>= "5.1"}
   "dune" {>= "3.0" & >= "3.0"}
+  "yojson"
   "odoc" {with-doc}
 ]
 build: [

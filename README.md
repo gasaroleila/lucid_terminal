@@ -31,6 +31,19 @@ NewsAPI ──▶ Sentiment (LangGraph) ──▶ Kafka ──┘
 
 All inter-service communication uses newline-delimited JSON over TCP.
 
+## Performance
+
+| Metric | Value |
+|---|---|
+| Throughput | 1.6–1.8M orders/sec (single core) |
+| p50 latency | ~410 ns |
+| p99 latency | ~614 ns |
+| p99.9 latency | 20–35 µs (GC tail) |
+| Test coverage | 29 tests, 59 assertions |
+| Kafka spike | Zero loss at 10x sustained traffic |
+
+See [BENCHMARKS.md](BENCHMARKS.md) for methodology, machine specs, and GC analysis.
+
 ## Tech Stack
 
 OCaml (OxCaml 5.2.0+ox), Bonsai_term, Dune, Apache Kafka 3.7.0 (KRaft), Python, Finnhub WebSocket API, confluent-kafka, NewsAPI, LangGraph, LangChain, Groq, Docker, Docker Compose v2
