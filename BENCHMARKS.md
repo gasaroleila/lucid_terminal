@@ -29,13 +29,13 @@ The p99.9 jumps to 20–35µs and max to ~450µs. This is OCaml's garbage collec
 
 Tested with `confluent-kafka` producer inside Docker, consumer connected to the TCP relay. Kafka single-node KRaft mode.
 
-| Scenario | Messages Sent | Messages Received | Loss |
-|---|---|---|---|
-| Normal rate (10 msg/s, 5s) | 50 | 50 | 0% |
-| 10x spike (100 msg/s, 5s) | 500 | 500 | 0% |
-| Disconnect/reconnect | 50 | ~45 | ~9% |
+| Scenario | Rate | Duration | Sent | Received | Lost | Loss % | In order |
+|---|---|---|---|---|---|---|---|
+| Baseline | 10 msg/s | 5s | 49 | 49 | 0 | 0.0% | yes |
+| 10x spike | 10 msg/s + 100 msg/s | 5s + 5s | 482 | 482 | 0 | 0.0% | yes |
+| 10x spike + disconnect | 10 msg/s + 100 msg/s | 5s + 5s, 0.5s disconnect | 483 | 438 | 45 | 9.3% | yes |
 
-**Summary:** Zero message loss under sustained 10x traffic spikes. Loss on disconnect is expected: the relay uses `auto.offset.reset=latest` with no consumer-side replay, so messages published while the consumer is disconnected are skipped.
+**Summary:** Zero loss at 10x (100 msg/s) while the consumer stays connected. 45 messages lost during a 0.5s disconnect because the relay uses `auto.offset.reset=latest` and does not replay missed messages.
 
 ## Correctness
 
