@@ -31,6 +31,13 @@ let add_to_side price order side_map =
   in
   FloatMap.add price (existing @ [order]) side_map
 
+let prepend_to_side price order side_map =
+  let existing = match FloatMap.find_opt price side_map with
+    | Some orders -> orders
+    | None        -> []
+  in
+  FloatMap.add price (order :: existing) side_map
+
 let add_order book order =
   let price = price_of_order order in
   match order.side with

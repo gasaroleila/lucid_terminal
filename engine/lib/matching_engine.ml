@@ -60,7 +60,7 @@ let rec match_order ?(trades=[]) book incoming =
           let asks = remove_front_order _resting_price book.asks in
           let asks = if resting.qty > fill_qty then
             let remainder = { resting with qty = resting.qty - fill_qty } in
-            add_to_side _resting_price remainder asks
+            prepend_to_side _resting_price remainder asks
           else asks
           in
           { book with asks; order_count = book.order_count - (if resting.qty <= fill_qty then 1 else 0) }
@@ -68,7 +68,7 @@ let rec match_order ?(trades=[]) book incoming =
           let bids = remove_front_order _resting_price book.bids in
           let bids = if resting.qty > fill_qty then
             let remainder = { resting with qty = resting.qty - fill_qty } in
-            add_to_side _resting_price remainder bids
+            prepend_to_side _resting_price remainder bids
           else bids
           in
           { book with bids; order_count = book.order_count - (if resting.qty <= fill_qty then 1 else 0) }
